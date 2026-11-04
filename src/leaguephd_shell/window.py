@@ -28,13 +28,15 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QLabel, QMainWindow
 
-from . import __version__, lcu
+from . import APP_NAME, __version__, lcu
 from .controller import DraftController
 from .phases import Phase
 
 log = logging.getLogger(__name__)
 
-# League PhD logo, from leaguephd-app's assets/icon.ico (16-256 px).
+# League PhD's logo (the leaguephd.com favicon), in the multi-size version from
+# leaguephd-app's assets/icon.ico (GPL-3.0). Used to show which site this app is for;
+# the app itself is unofficial.
 ICON_PATH = Path(__file__).with_name("icon.ico")
 PICK_NOW_URL = QUrl("https://www.leaguephd.com/en/stats/pick-now/")
 SITE_HOST = "leaguephd.com"
@@ -105,7 +107,7 @@ class SitePage(QWebEnginePage):
 class MainWindow(QMainWindow):
     def __init__(self, bridge: LcuBridge):
         super().__init__()
-        self.setWindowTitle("League PhD")
+        self.setWindowTitle(APP_NAME)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(1200, 930)
 

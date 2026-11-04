@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""League PhD desktop shell: feeds your live champ select into leaguephd.com."""
+"""Unofficial League PhD: feeds your live champ select into leaguephd.com.
 
-__version__ = "0.1.0"
+Not made or endorsed by leaguephd or Riot Games.
+"""
+
+__version__ = "0.1.1"
+APP_NAME = "Unofficial League PhD"  # shown to users; also the exe's ProductName
 
 
 def main() -> None:
@@ -32,7 +36,7 @@ def main() -> None:
     if sys.platform == "win32":
         # Own taskbar identity, so Windows shows our icon instead of python.exe's.
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("leaguephd.shell")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("leaguephd-shell.unofficial")
 
     from PySide6.QtWidgets import QApplication
 
