@@ -29,6 +29,11 @@ def main() -> None:
         flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"{flags} --log-level=3".strip()
 
+    if sys.platform == "win32":
+        # Own taskbar identity, so Windows shows our icon instead of python.exe's.
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("leaguephd.shell")
+
     from PySide6.QtWidgets import QApplication
 
     from .window import LcuBridge, MainWindow

@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QLabel, QMainWindow
@@ -30,6 +30,8 @@ from .phases import Phase
 
 log = logging.getLogger(__name__)
 
+# League PhD logo, from leaguephd-app's assets/icon.ico (16-256 px).
+ICON_PATH = Path(__file__).with_name("icon.ico")
 PICK_NOW_URL = QUrl("https://www.leaguephd.com/en/stats/pick-now/")
 SITE_HOST = "leaguephd.com"
 
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
     def __init__(self, bridge: LcuBridge):
         super().__init__()
         self.setWindowTitle("League PhD")
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(1200, 930)
 
         self.view = QWebEngineView(self)

@@ -18,6 +18,26 @@ uv run pytest                    # tests
 
 Start it before or after the League client; it waits and reconnects on its own.
 
+## Build the exe
+
+```
+uv run pyinstaller packaging/leaguephd.spec --noconfirm
+```
+
+Output is `dist/LeaguePhD/LeaguePhD.exe`. Zip the whole `dist/LeaguePhD` folder
+to share it (~410 MB unzipped, most of it Qt's embedded Chromium).
+
+## Test with a real draft, instantly
+
+`tests/test_replay.py` replays a recorded ranked draft (92 events) through the
+tracker, phases and polling logic in well under a second, with no client, browser or network.
+To add another recording, play a game with `--debug`, then scrub it, which
+keeps only the fields the app reads and drops player names and IDs:
+
+```
+uv run python scripts/scrub_recording.py logs/session.jsonl tests/fixtures/<name>.jsonl
+```
+
 ## How it works
 
 | File | Role |
