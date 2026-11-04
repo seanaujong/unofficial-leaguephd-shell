@@ -11,9 +11,13 @@ permissions:
 
 jobs:
   analyze:
+    # Code scanning is free for public repos only; skip while the repo is private.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
+      contents: read          # job-level permissions replace the workflow's, so restate it
+      actions: read
+      security-events: write  # upload results
     strategy:
       fail-fast: false
       matrix:
