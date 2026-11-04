@@ -25,6 +25,7 @@ Start it before or after the League client; it waits and reconnects on its own.
 | `lcu.py` | Finds `LeagueClientUx.exe`, reads its port/password, streams `/lol-champ-select/v1/session` over the client's local WAMP websocket |
 | `champselect.py` | Turns session snapshots into the `{my_side, bans, picks, updated}` object the page's `app_call()` expects |
 | `window.py` | Qt window embedding the pick-now page; LCU asyncio loop runs on a background thread and talks to the UI via signals |
+| `phases.py` | The app's phases (waiting → idle → planning → banning → picking → finalization → game starting); see [docs/phases.md](docs/phases.md) |
 
 The recommendations come from leaguephd.com, not this app. If the site changes
 its `app_call` contract, the window logs a warning.

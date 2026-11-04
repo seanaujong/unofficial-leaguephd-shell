@@ -22,6 +22,8 @@ from typing import AsyncIterator
 import aiohttp
 import psutil
 
+from .phases import Phase
+
 log = logging.getLogger(__name__)
 
 CLIENT_PROCESS_NAMES = {"LeagueClientUx.exe", "LeagueClientUx"}
@@ -175,25 +177,27 @@ def _parse_event(raw: str) -> SessionEvent | None:
     return SessionEvent(payload.get("eventType", ""), payload.get("data"))
 
 
-async def run_forever(on_status, on_event, poll_seconds: float = 2.0) -> None:
+async def run_forever(on_phase, on_event, poll_seconds: float = 2.0) -> None:
     """Wait for the client, stream events, and reconnect if it restarts.
 
+    Drives the connection phases: WAITING_FOR_CLIENT until credentials are
+    found, IDLE once connected. Champ select phases come from the events.
     Unlike the original app, closing the League client doesn't quit this app;
     it just goes back to waiting.
     """
     while True:
         creds = find_credentials()
         if creds is None:
-            on_status("Waiting for the League client...")
+            on_phase(Phase.WAITING_FOR_CLIENT)
             await asyncio.sleep(poll_seconds)
             continue
         try:
-            on_status("Connected to the League client")
+            on_phase(Phase.IDLE)
             async for event in champ_select_events(creds):
                 on_event(event)
             log.info("LCU websocket closed")
         except aiohttp.ClientError as exc:
             # Common right after launch, before the API is listening.
             log.info("LCU connection failed: %s", exc)
-        on_status("Waiting for the League client...")
+        on_phase(Phase.WAITING_FOR_CLIENT)
         await asyncio.sleep(poll_seconds)

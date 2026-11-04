@@ -106,6 +106,21 @@ def test_parse_event():
     assert _parse_event(json.dumps([8, "OnJsonApiEvent_other", {}])) is None
 
 
+def test_phase_from_session():
+    from leaguephd_shell.phases import Phase
+
+    def with_timer(session, phase):
+        return session | {"timer": {"phase": phase}}
+
+    assert Phase.from_session(with_timer(solo_session(), "PLANNING")) is Phase.PLANNING
+    assert Phase.from_session(with_timer(solo_session(bans_done=4), "BAN_PICK")) is Phase.BANNING
+    assert Phase.from_session(with_timer(solo_session(bans_done=10), "BAN_PICK")) is Phase.PICKING
+    assert Phase.from_session(with_timer(solo_session(bans_done=10, picks_done=10), "FINALIZATION")) is Phase.FINALIZATION
+    assert Phase.from_session(with_timer(solo_session(), "GAME_STARTING")) is Phase.GAME_STARTING
+    assert Phase.from_session(solo_session() | {"hasSimultaneousPicks": True}) is Phase.BLIND_PICK
+    assert not Phase.IDLE.in_champ_select and Phase.BANNING.in_champ_select
+
+
 def test_poll_diff_events():
     a = {"gameId": 1, "timer": 30}
     assert diff_sessions(None, None) is None

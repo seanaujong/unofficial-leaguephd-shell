@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QLabel, QMainWindow
 
 from . import __version__, lcu
 from .champselect import ChampSelect
+from .phases import Phase
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def _is_pick_now(url: QUrl) -> bool:
 class LcuBridge(QObject):
     """Runs the asyncio LCU loop on a daemon thread and re-emits as Qt signals."""
 
-    status = Signal(str)
+    phase = Signal(object)  # Phase: connection phases from the LCU loop
     session = Signal(str, object)  # event_type, session data
 
     def __init__(self, event_log: Path | None = None):
@@ -56,7 +57,7 @@ class LcuBridge(QObject):
         threading.Thread(target=self._run, name="lcu", daemon=True).start()
 
     def _run(self) -> None:
-        asyncio.run(lcu.run_forever(self.status.emit, self._on_event))
+        asyncio.run(lcu.run_forever(self.phase.emit, self._on_event))
 
     def _on_event(self, event: lcu.SessionEvent) -> None:
         if self._event_log:
@@ -107,25 +108,45 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view)
 
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
-        self.statusBar().showMessage("Waiting for the League client...")
+
+        self.phase: Phase | None = None
+        self._set_phase(Phase.WAITING_FOR_CLIENT)
 
         self.tracker = ChampSelect()
         self._page_ready = False
         self._pending: list[dict] = []  # payloads waiting for the page to load
         self._needs_fresh_page = True  # the page is stateful; each draft needs a clean load
 
-        bridge.status.connect(self.statusBar().showMessage)
+        bridge.phase.connect(self._on_connection_phase)
         bridge.session.connect(self._on_session)
 
         self.view.load(PICK_NOW_URL)
 
+    def _set_phase(self, phase: Phase) -> None:
+        """The single place the app's phase changes. See phases.py for the diagram."""
+        if phase == self.phase:
+            return
+        log.info("phase: %s -> %s", self.phase.name if self.phase else None, phase.name)
+        self.phase = phase
+        self.statusBar().showMessage(phase.label)
+
+    def _on_connection_phase(self, phase: Phase) -> None:
+        # The LCU loop reports IDLE on every (re)connect; don't let that
+        # overwrite a champ select phase the replayed snapshot already set.
+        if phase == Phase.IDLE and self.phase and self.phase.in_champ_select:
+            return
+        self._set_phase(phase)
+
     def _on_session(self, event_type: str, data: dict | None) -> None:
         if event_type == "Delete" or data is None:
+            # Champ select closed: the game loaded, or someone dodged.
             self._needs_fresh_page = True
-            self.statusBar().showMessage("Champ select ended")
+            self._set_phase(Phase.IDLE)
             return
         if event_type == "Create":
             self._needs_fresh_page = True
+
+        self._set_phase(Phase.from_session(data))
 
         # New draft, or the user browsed away from pick-now mid-draft: reload the
         # page and rebuild state from this snapshot. LCU snapshots are complete,
@@ -137,7 +158,6 @@ class MainWindow(QMainWindow):
             self._page_ready = False
             self.view.load(PICK_NOW_URL)
 
-        self.statusBar().showMessage("In champ select")
         changed, delta = self.tracker.update(data)
         if changed:
             self._send(self.tracker.payload(delta))
