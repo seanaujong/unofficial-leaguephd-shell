@@ -4,6 +4,10 @@
 
 """The desktop window: embeds leaguephd.com's pick-now page and feeds it the draft.
 
+This module is Qt plumbing only. The decisions (phases, when to reload the page,
+what to send it) live in controller.DraftController; MainWindow forwards Qt
+signals to it and carries out its requests as its PageDriver.
+
 Threading model: Qt owns the main thread. The LCU client is asyncio, so it
 runs its own event loop on a background thread and talks to the window only
 through Qt signals (which Qt queues safely across threads). That replaces the
@@ -25,7 +29,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QLabel, QMainWindow
 
 from . import __version__, lcu
-from .champselect import ChampSelect
+from .controller import DraftController
 from .phases import Phase
 
 log = logging.getLogger(__name__)
@@ -112,81 +116,50 @@ class MainWindow(QMainWindow):
 
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
 
-        self.phase: Phase | None = None
-        self._set_phase(Phase.WAITING_FOR_CLIENT)
+        # All draft logic lives in the controller; this window is its PageDriver.
+        self.controller = DraftController(page=self, on_phase=self._show_phase)
+        self._load_token = 0
 
-        self.tracker = ChampSelect()
-        self._page_ready = False
-        self._pending: list[dict] = []  # payloads waiting for the page to load
-        self._needs_fresh_page = True  # the page is stateful; each draft needs a clean load
+        self.view.loadStarted.connect(self._on_load_started)
+        bridge.phase.connect(self.controller.connection_phase)
+        bridge.session.connect(self.controller.session_event)
 
-        bridge.phase.connect(self._on_connection_phase)
-        bridge.session.connect(self._on_session)
+        self.load_pick_now()
 
+    # --- PageDriver (requests from the controller) ---------------------------
+
+    def load_pick_now(self) -> None:
         self.view.load(PICK_NOW_URL)
 
-    def _set_phase(self, phase: Phase) -> None:
-        """The single place the app's phase changes. See phases.py for the diagram."""
-        if phase == self.phase:
-            return
-        log.info("phase: %s -> %s", self.phase.name if self.phase else None, phase.name)
-        self.phase = phase
+    def app_call(self, payload: dict) -> None:
+        self.view.page().runJavaScript(f"app_call({json.dumps(payload)});")
+
+    def on_pick_now(self) -> bool:
+        return _is_pick_now(self.view.url())
+
+    # --- Qt signals -> controller -------------------------------------------
+
+    def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
 
-    def _on_connection_phase(self, phase: Phase) -> None:
-        # The LCU loop reports IDLE on every (re)connect; don't let that
-        # overwrite a champ select phase the replayed snapshot already set.
-        if phase == Phase.IDLE and self.phase and self.phase.in_champ_select:
-            return
-        self._set_phase(phase)
-
-    def _on_session(self, event_type: str, data: dict | None) -> None:
-        if event_type == "Delete" or data is None:
-            # Champ select closed: the game loaded, or someone dodged.
-            self._needs_fresh_page = True
-            self._set_phase(Phase.IDLE)
-            return
-        if event_type == "Create":
-            self._needs_fresh_page = True
-
-        self._set_phase(Phase.from_session(data))
-
-        # New draft, or the user browsed away from pick-now mid-draft: reload the
-        # page and rebuild state from this snapshot. LCU snapshots are complete,
-        # so nothing is lost by starting over.
-        if self._needs_fresh_page or not _is_pick_now(self.view.url()):
-            self._needs_fresh_page = False
-            self.tracker.reset()
-            self._pending.clear()
-            self._page_ready = False
-            self.view.load(PICK_NOW_URL)
-
-        changed, delta = self.tracker.update(data)
-        if changed:
-            self._send(self.tracker.payload(delta))
-
-    def _send(self, payload: dict) -> None:
-        if not self._page_ready:
-            self._pending.append(payload)
-            return
-        self.view.page().runJavaScript(f"app_call({json.dumps(payload)});")
+    def _on_load_started(self) -> None:
+        self._load_token = self.controller.page_load_started()
 
     def _on_load_finished(self, ok: bool) -> None:
         # Don't trust `ok`: the site's ad/tracker scripts often fail and report
         # ok=False even though the page works. Instead, ask the page whether its
         # app_call hook exists.
+        token = self._load_token
         if not ok:
             log.info("loadFinished(ok=False) for %s; checking page anyway", self.view.url().toString())
-        if not _is_pick_now(self.view.url()):
-            self._page_ready = False
+        if not self.on_pick_now():
+            self.controller.page_ready(token, False)
             return
-        self.view.page().runJavaScript("typeof app_call === 'function'", 0, self._on_page_probe)
 
-    def _on_page_probe(self, has_hook) -> None:
-        self._page_ready = bool(has_hook)
-        if not self._page_ready:
-            log.warning("pick-now page has no app_call(); the site may have changed")
-            return
-        pending, self._pending = self._pending, []
-        for payload in pending:
-            self._send(payload)
+        def on_probe(has_hook) -> None:
+            accepted = self.controller.page_ready(token, bool(has_hook))
+            # A load replaced mid-way also answers "no"; only warn for the current page.
+            if accepted and not has_hook:
+                log.warning("pick-now page has no app_call(); the site may have changed")
+
+        self.view.page().runJavaScript("typeof app_call === 'function'", 0, on_probe)

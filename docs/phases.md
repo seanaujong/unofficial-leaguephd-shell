@@ -3,7 +3,9 @@
 The app is always in exactly one phase. The phase is shown in the status bar and
 every change is logged (`phase: BANNING -> PICKING`). The phases are defined in
 [`phases.py`](../src/leaguephd_shell/phases.py), and only one method changes them:
-`MainWindow._set_phase` in [`window.py`](../src/leaguephd_shell/window.py).
+`DraftController._set_phase` in [`controller.py`](../src/leaguephd_shell/controller.py).
+The controller holds all the draft logic and has no Qt in it; the window only
+forwards events to it and carries out its requests.
 
 The League client decides the phase; the app reads it. Connection phases
 come from the LCU loop, and champ select phases come from each session snapshot.
@@ -53,9 +55,11 @@ and picks, so the app splits it by whether any pick action has started.
 | Finding and connecting to the client (`WAITING_FOR_CLIENT`, `IDLE`) | `lcu.run_forever`, `lcu.find_credentials` |
 | Receiving session snapshots (websocket, or HTTP polling fallback) | `lcu.champ_select_events`, `lcu._poll`, `lcu.diff_sessions` |
 | Naming the champ select phase from a snapshot | `Phase.from_session` |
-| Changing phase (status bar + log) | `MainWindow._set_phase` |
+| Changing phase (log, then status bar via `on_phase`) | `DraftController._set_phase` |
+| Deciding when a draft starts fresh (reset + reload) | `DraftController.session_event`, `_start_fresh_page` |
 | Turning snapshots into page updates | `ChampSelect.update`, `ChampSelect.payload` |
-| Delivering updates to the page | `MainWindow._send`, `_on_load_finished`, `_on_page_probe` |
+| Queueing updates until the page is ready | `DraftController._send`, `page_load_started`, `page_ready` |
+| Qt side: loading the page, running `app_call`, probing readiness | `MainWindow` in `window.py` (the controller's `PageDriver`) |
 
 ## Edge cases
 
@@ -72,6 +76,10 @@ and picks, so the app splits it by whether any pick action has started.
   next update reloads pick-now and replays the draft from the snapshot.
 - **Page not loaded yet.** Updates queue up until the page's `app_call` exists,
   then they're sent in order.
+- **A late "ready" from the previous page.** Each page load gets a token. If a
+  new draft reloads the page while the old page's readiness check is still in
+  flight, that check's answer carries an old token and is ignored, so queued
+  updates never go to a page that's being replaced.
 
 ## Verified against a real draft
 

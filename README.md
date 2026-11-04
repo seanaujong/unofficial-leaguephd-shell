@@ -30,7 +30,9 @@ to share it (~410 MB unzipped, most of it Qt's embedded Chromium).
 ## Test with a real draft, instantly
 
 `tests/test_replay.py` replays a recorded ranked draft (92 events) through the
-tracker, phases and polling logic in well under a second, with no client, browser or network.
+app's real `DraftController`, with a fake page in place of the browser, in well
+under a second. It covers back-to-back drafts, slow page loads, browsing away
+mid-draft, and a late "ready" from a page being replaced.
 To add another recording, play a game with `--debug`, then scrub it, which
 keeps only the fields the app reads and drops player names and IDs:
 
@@ -44,7 +46,8 @@ uv run python scripts/scrub_recording.py logs/session.jsonl tests/fixtures/<name
 |---|---|
 | `lcu.py` | Finds `LeagueClientUx.exe`, reads its port/password, streams `/lol-champ-select/v1/session` over the client's local WAMP websocket |
 | `champselect.py` | Turns session snapshots into the `{my_side, bans, picks, updated}` object the page's `app_call()` expects |
-| `window.py` | Qt window embedding the pick-now page; LCU asyncio loop runs on a background thread and talks to the UI via signals |
+| `controller.py` | All draft logic, no Qt: phases, when to reload the page, queueing updates until the page is ready |
+| `window.py` | Thin Qt layer: embeds the pick-now page and carries out the controller's requests; the LCU asyncio loop runs on a background thread and talks to it via signals |
 | `phases.py` | The app's phases (waiting → idle → planning → banning → picking → finalization → game starting); see [docs/phases.md](docs/phases.md) |
 
 The recommendations come from leaguephd.com, not this app. If the site changes
