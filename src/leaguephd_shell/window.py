@@ -41,11 +41,21 @@ log = logging.getLogger(__name__)
 ICON_PATH = Path(__file__).with_name("icon.ico")
 # Set on a page we're about to replace, so it can't be mistaken for its replacement.
 STALE_MARKER = "__leaguephdShellStale"
+# Returns JSON: {state: stale|ready|no-hook|loading, known: [champion ids] | null}.
+# `known` is the page's own champion list (a JSON <script id=champion_data>);
+# its code crashes on IDs outside it, so the controller adapts updates to it.
 READY_PROBE = f"""(() => {{
-  if (window.{STALE_MARKER}) return 'stale';
-  if (typeof app_call === 'function') return 'ready';
-  return document.readyState === 'complete' ? 'no-hook' : 'loading';
+  if (window.{STALE_MARKER}) return JSON.stringify({{state: 'stale'}});
+  if (typeof app_call !== 'function')
+    return JSON.stringify({{state: document.readyState === 'complete' ? 'no-hook' : 'loading'}});
+  let known = null;
+  try {{
+    known = Object.keys(JSON.parse(document.getElementById('champion_data').textContent)).map(Number);
+  }} catch (e) {{}}
+  return JSON.stringify({{state: 'ready', known}});
 }})()"""
+# Wraps app_call so a page-side error is reported back instead of failing silently.
+APP_CALL = "(() => {{ try {{ app_call({payload}); return null; }} catch (e) {{ return String(e); }} }})()"
 PICK_NOW_URL = QUrl("https://www.leaguephd.com/en/stats/pick-now/")
 SITE_HOST = "leaguephd.com"
 
@@ -146,13 +156,17 @@ class MainWindow(QMainWindow):
         # rather than leave an empty window.
         self._loading = QLabel()
         self.statusBar().addPermanentWidget(self._loading)
+        self._unknown = QLabel()  # newer champions the site doesn't have yet
+        self.statusBar().addPermanentWidget(self._unknown)
         self._update = QLabel()  # filled by show_update; opens the release page in the browser
         self._update.setOpenExternalLinks(True)
         self.statusBar().addPermanentWidget(self._update)
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
 
         # All draft logic lives in the controller; this window is its PageDriver.
-        self.controller = DraftController(page=self, on_phase=self._show_phase)
+        self.controller = DraftController(
+            page=self, on_phase=self._show_phase, on_unknown_champions=self._show_unknown
+        )
         self._warned_generation = -1
 
         self.view.loadStarted.connect(self.controller.page_load_started)
@@ -178,7 +192,11 @@ class MainWindow(QMainWindow):
         self.view.load(PICK_NOW_URL)
 
     def app_call(self, payload: dict) -> None:
-        self.view.page().runJavaScript(f"app_call({json.dumps(payload)});")
+        def on_result(error) -> None:
+            if error:
+                log.warning("pick-now page rejected an update: %s", error)
+
+        self.view.page().runJavaScript(APP_CALL.format(payload=json.dumps(payload)), 0, on_result)
 
     def on_pick_now(self) -> bool:
         return _is_pick_now(self.view.url())
@@ -187,6 +205,16 @@ class MainWindow(QMainWindow):
 
     def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
+
+    def _show_unknown(self, champion_ids: set[int]) -> None:
+        n = len(champion_ids)
+        self._unknown.setText(
+            f"{n} newer champion{'s' if n > 1 else ''} not on leaguephd.com yet (left out)" if n else ""
+        )
+        self._unknown.setToolTip(
+            "leaguephd.com's data predates these champions, so bans show as empty and "
+            f"picks are skipped. Champion IDs: {', '.join(map(str, sorted(champion_ids)))}" if n else ""
+        )
 
     def show_update(self, update: "updates.Update") -> None:
         self._update.setText(f'<a href="{html.escape(update.url, quote=True)}">'
@@ -209,8 +237,13 @@ class MainWindow(QMainWindow):
             return
         token = self.controller.probe_token()
 
-        def on_answer(state) -> None:
-            accepted = self.controller.page_ready(token, state == "ready")
+        def on_answer(raw) -> None:
+            try:
+                answer = json.loads(raw)
+            except (TypeError, ValueError):
+                answer = {"state": "loading"}
+            state = answer.get("state")
+            accepted = self.controller.page_ready(token, state == "ready", answer.get("known"))
             if accepted and state == "no-hook" and self._warned_generation != token:
                 self._warned_generation = token
                 log.warning("pick-now page has no app_call(); the site may have changed")

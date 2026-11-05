@@ -29,6 +29,8 @@ def load_events():
 class Doc:
     """One page document: loading until finished; marked stale when we replace it."""
 
+    known: frozenset | None = None  # champion IDs the site has data for (None = not reported)
+
     def __init__(self):
         self.loaded = False
         self.stale = False
@@ -60,7 +62,15 @@ class FakePage:
             self.controller.page_load_started()
 
     def app_call(self, payload):
-        self.doc.received.append(json.loads(json.dumps(payload)))  # must round-trip to JS
+        payload = json.loads(json.dumps(payload))  # must round-trip to JS
+        if self.doc.known is not None:
+            # The real page's update_ban_portraits does champion_data[id] with no
+            # fallback: an unknown ID throws and the whole update is lost.
+            ids = [b for b in payload["bans"] if b is not None]
+            ids += [i["champion_id"] for i in payload["updated"]["insert_list"]]
+            if any(c not in self.doc.known for c in ids):
+                raise AssertionError(f"page would crash on unknown champion in {ids}")
+        self.doc.received.append(payload)
 
     def on_pick_now(self):
         return self.url_is_pick_now
@@ -73,7 +83,8 @@ class FakePage:
     def poll(self):
         """What the window's 500 ms readiness check does."""
         token = self.controller.probe_token()
-        self.controller.page_ready(token, self.doc.answer() == "ready")
+        ready = self.doc.answer() == "ready"
+        self.controller.page_ready(token, ready, self.doc.known if ready else None)
 
     @property
     def delivered(self):
@@ -223,6 +234,80 @@ def test_unused_page_is_not_reloaded_after_a_dodge():
     assert ctrl.loads_requested == 0
     page.finish_load()
     assert len(page.delivered) == 1
+
+
+YUNARA = 804  # released after leaguephd.com's data (Patch 15.12); the site has no entry
+
+
+def swap_champion(events, old, new):
+    """The recorded draft, with one champion replaced everywhere it appears."""
+    return json.loads(json.dumps(events).replace(f'"championId":{old},', f'"championId":{new},')
+                      .replace(f'"championId": {old},', f'"championId": {new},'))
+
+
+def site_known(events):
+    """Every champion in the recording, plus the site's 0/-1 placeholders."""
+    ids = {a["championId"] for e in events if e["data"] for g in e["data"]["actions"] for a in g}
+    return frozenset(ids | {0, -1})
+
+
+def make_with_site_data(known):
+    ctrl, page, phases = make()
+    page.doc.known = known
+    seen = []
+    ctrl.on_unknown_champions = seen.append
+    Doc.known = known  # documents loaded later have the same site data
+    return ctrl, page, seen
+
+
+def test_unknown_banned_champion_does_not_freeze_the_page():
+    """The reported bug: someone bans Yunara; the site's page crashed on every update."""
+    events = load_events()
+    known = site_known(events)
+    events = swap_champion(events, 950, YUNARA)  # 950 was banned in the recording
+    try:
+        ctrl, page, seen = make_with_site_data(known)
+        play(ctrl, page, events)  # FakePage raises if the page would crash
+    finally:
+        Doc.known = None
+    final = page.delivered[-1]
+    assert YUNARA not in final["bans"] and -1 in final["bans"]
+    assert sum(p["updated"]["to_pick_phase"] for p in page.delivered) == 1, "still reaches pick phase"
+    assert len([i for p in page.delivered for i in p["updated"]["insert_list"]]) == 10
+    assert seen[-1] == {YUNARA}
+    assert ctrl.tracker.bans.count(YUNARA) == 1, "the tracker itself keeps the real draft"
+
+
+def test_unknown_picked_champion_is_left_out():
+    events = load_events()
+    known = site_known(events)
+    events = swap_champion(events, 222, YUNARA)  # 222 (Jinx) was picked in the recording
+    try:
+        ctrl, page, seen = make_with_site_data(known)
+        play(ctrl, page, events)
+    finally:
+        Doc.known = None
+    inserts = [i for p in page.delivered for i in p["updated"]["insert_list"]]
+    assert len(inserts) == 9 and YUNARA not in [i["champion_id"] for i in inserts]
+    assert seen[-1] == {YUNARA}
+
+
+def test_unknown_notice_clears_on_next_draft():
+    events = load_events()
+    known = site_known(events)
+    try:
+        ctrl, page, seen = make_with_site_data(known)
+        play(ctrl, page, swap_champion(events, 950, YUNARA))
+        play(ctrl, page, [{**events[0], "eventType": "Create"}, *events[1:]])
+    finally:
+        Doc.known = None
+    assert seen[-1] == set() and not ctrl.unknown_champions
+
+
+def test_without_site_data_updates_pass_through_unchanged():
+    ctrl, page, _ = make()  # page didn't report a champion list
+    play(ctrl, page, swap_champion(load_events(), 950, YUNARA))
+    assert YUNARA in page.delivered[-1]["bans"]
 
 
 def test_reconnect_idle_does_not_hide_champ_select_phase():

@@ -46,9 +46,20 @@ class PageDriver(Protocol):
 
 
 class DraftController:
-    def __init__(self, page: PageDriver, on_phase: Callable[[Phase], None] = lambda _: None):
+    def __init__(
+        self,
+        page: PageDriver,
+        on_phase: Callable[[Phase], None] = lambda _: None,
+        on_unknown_champions: Callable[[set[int]], None] = lambda _: None,
+    ):
         self.page = page
         self.on_phase = on_phase
+        self.on_unknown_champions = on_unknown_champions
+        # Champion IDs the current page has data for (None = not reported). The
+        # site lags behind new releases, and its page code crashes on an ID it
+        # doesn't know, so updates are adapted to this set before delivery.
+        self.known_champions: frozenset[int] | None = None
+        self.unknown_champions: set[int] = set()  # left out this draft
         self.phase: Phase | None = None
         self.tracker = ChampSelect()
         self.pending: list[dict] = []  # payloads waiting for the page to be ready
@@ -108,6 +119,9 @@ class DraftController:
         self.needs_fresh_draft = False
         self.tracker.reset()
         self.pending.clear()
+        if self.unknown_champions:
+            self.unknown_champions = set()
+            self.on_unknown_champions(set())
         if self.page_dirty or not self.page.on_pick_now():
             self._reload_page()
         # Otherwise the current page (perhaps still loading) is unused: keep it.
@@ -125,9 +139,42 @@ class DraftController:
     def _send(self, payload: dict) -> None:
         if self.page_is_ready:
             self.page_dirty = True
-            self.page.app_call(payload)
+            self.page.app_call(self._fit_to_page(payload))
         else:
             self.pending.append(payload)
+
+    def _fit_to_page(self, payload: dict) -> dict:
+        """Replace champions the page doesn't know, so its code doesn't crash.
+
+        Unknown bans become -1 (the page's "no ban" portrait); unknown picks are
+        left out, so the page still suggests picks for the rest of the draft.
+        """
+        known = self.known_champions
+        if known is None:
+            return payload
+        unknown: set[int] = set()
+
+        def ok(champion_id) -> bool:
+            if champion_id is None or champion_id in known:
+                return True
+            unknown.add(champion_id)
+            return False
+
+        fitted = {
+            **payload,
+            "bans": [b if ok(b) else -1 for b in payload["bans"]],
+            "picks": [[s if ok(s["champion_id"]) else {**s, "champion_id": None} for s in team]
+                      for team in payload["picks"]],
+            "updated": {
+                **payload["updated"],
+                "insert_list": [i for i in payload["updated"]["insert_list"] if ok(i["champion_id"])],
+            },
+        }
+        if not unknown <= self.unknown_champions:
+            self.unknown_champions |= unknown
+            log.warning("leaguephd.com doesn't know champion(s) %s; left out", sorted(self.unknown_champions))
+            self.on_unknown_champions(set(self.unknown_champions))
+        return fitted
 
     def page_load_started(self) -> None:
         """The page started a navigation (ours, or the user clicking a link).
@@ -142,15 +189,18 @@ class DraftController:
         """Take this before asking the page whether it's ready."""
         return self._generation
 
-    def page_ready(self, token: int, ready: bool) -> bool:
+    def page_ready(self, token: int, ready: bool, known_champions=None) -> bool:
         """The page's answer to a readiness check made under ``token``.
 
+        ``known_champions``: the champion IDs the page has data for, if it said.
         Returns False if the answer is stale (the page was replaced since) and
         was ignored.
         """
         if token != self._generation:
             log.debug("ignoring stale readiness answer (token %d, now %d)", token, self._generation)
             return False
+        if known_champions is not None:
+            self.known_champions = frozenset(int(c) for c in known_champions)
         if ready and not self.page_is_ready:
             self.page_is_ready = True
             pending, self.pending = self.pending, []
