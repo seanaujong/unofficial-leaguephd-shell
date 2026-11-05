@@ -4,7 +4,7 @@
 
 Please report security problems privately, not in a public issue: use GitHub's
 **Report a vulnerability** button on this repository's
-[Security tab](https://github.com/seanaujong/leaguephd-shell/security/advisories/new).
+[Security tab](https://github.com/seanaujong/unofficial-leaguephd-shell/security/advisories/new).
 
 You'll get a reply within a week. Fixes ship as a new release, and the advisory
 is published once a fixed release is out.

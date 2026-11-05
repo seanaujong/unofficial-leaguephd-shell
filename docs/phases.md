@@ -58,7 +58,8 @@ and picks, so the app splits it by whether any pick action has started.
 | Changing phase (log, then status bar via `on_phase`) | `DraftController._set_phase` |
 | Deciding when a draft starts fresh (reset + reload) | `DraftController.session_event`, `_start_fresh_page` |
 | Turning snapshots into page updates | `ChampSelect.update`, `ChampSelect.payload` |
-| Queueing updates until the page is ready | `DraftController._send`, `page_load_started`, `page_ready` |
+| Queueing updates until the page is ready | `DraftController._send`, `probe_token`, `page_ready` |
+| Reloading only a page that already holds draft data | `DraftController._start_fresh_draft`, `page_dirty` |
 | Qt side: loading the page, running `app_call`, probing readiness | `MainWindow` in `window.py` (the controller's `PageDriver`) |
 
 ## Edge cases
@@ -75,11 +76,17 @@ and picks, so the app splits it by whether any pick action has started.
 - **Browsing away mid-draft.** If you navigate off pick-now during a draft, the
   next update reloads pick-now and replays the draft from the snapshot.
 - **Page not loaded yet.** Updates queue up until the page's `app_call` exists,
-  then they're sent in order.
-- **A late "ready" from the previous page.** Each page load gets a token. If a
-  new draft reloads the page while the old page's readiness check is still in
-  flight, that check's answer carries an old token and is ignored, so queued
-  updates never go to a page that's being replaced.
+  then they're sent in order. The window asks the page every 500 ms rather than
+  waiting for Qt's load signals: Qt merges a load requested while another is
+  running and then reports no new "load started", and leaguephd.com can take
+  10 to 80 seconds to finish loading all its ads.
+- **Opening the app mid-draft.** The startup page hasn't received any draft data,
+  so the draft goes to it once it's ready; it isn't reloaded. A page is only
+  reloaded for a new draft if it already holds data from an earlier one.
+- **A late "ready" from the previous page.** Before reloading, the window marks
+  the old page as stale, and every readiness check carries the token from when it
+  was asked. A reload bumps the token, so an answer from the old page is ignored
+  and queued updates never go to a page that's being replaced.
 
 ## Verified against a real draft
 

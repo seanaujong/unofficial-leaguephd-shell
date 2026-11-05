@@ -72,7 +72,7 @@ version_info = VSVersionInfo(
             StringStruct("InternalName", EXE_NAME),
             StringStruct("ProductVersion", VERSION),
             StringStruct("FileVersion", VERSION),
-            StringStruct("Comments", "https://github.com/seanaujong/leaguephd-shell"),
+            StringStruct("Comments", "https://github.com/seanaujong/unofficial-leaguephd-shell"),
         ])]),
         VarFileInfo([VarStruct("Translation", [0x0409, 1200])]),
     ],

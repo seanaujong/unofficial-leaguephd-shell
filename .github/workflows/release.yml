@@ -51,28 +51,51 @@ jobs:
       - name: Build exe
         run: uv run pyinstaller packaging/leaguephd.spec --noconfirm
 
-      - name: Zip and checksum
+      - name: Build installer
+        id: setup
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /Q "/DAppVersion=$env:VERSION" packaging/installer.iss
+          if ($LASTEXITCODE) { throw "ISCC failed" }
+          "name=UnofficialLeaguePhd-Setup-v$env:VERSION.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Zip and checksums
         id: zip
         shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SETUP: ${{ steps.setup.outputs.name }}
         run: |
-          $name = "UnofficialLeaguePhd-v${{ steps.version.outputs.version }}-windows-x64.zip"
-          Compress-Archive -Path dist/UnofficialLeaguePhd -DestinationPath "dist/$name" -CompressionLevel Optimal
-          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name" | Out-File -Encoding ascii "dist/$name.sha256"
-          "name=$name" >> $env:GITHUB_OUTPUT
-          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          $zip = "UnofficialLeaguePhd-v$env:VERSION-windows-x64.zip"
+          Compress-Archive -Path dist/UnofficialLeaguePhd -DestinationPath "dist/$zip" -CompressionLevel Optimal
+          $lines = foreach ($f in $env:SETUP, $zip) {
+            "$((Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower())  $f"
+          }
+          $lines | Out-File -Encoding ascii dist/SHA256SUMS.txt
+          "name=$zip" >> $env:GITHUB_OUTPUT
+          "setup_sha256=$($lines[0].Split(' ')[0])" >> $env:GITHUB_OUTPUT
+          "zip_sha256=$($lines[1].Split(' ')[0])" >> $env:GITHUB_OUTPUT
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/${{ steps.zip.outputs.name }}
+          subject-path: |
+            dist/${{ steps.setup.outputs.name }}
+            dist/${{ steps.zip.outputs.name }}
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ steps.zip.outputs.name }}
+          name: release-v${{ steps.version.outputs.version }}
           path: |
+            dist/${{ steps.setup.outputs.name }}
             dist/${{ steps.zip.outputs.name }}
-            dist/${{ steps.zip.outputs.name }}.sha256
+            dist/SHA256SUMS.txt
 
       - name: Create draft release
         if: github.ref_type == 'tag'
@@ -80,24 +103,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ steps.version.outputs.version }}  # validated above to equal the tag
+          SETUP: ${{ steps.setup.outputs.name }}
+          SETUP_SHA256: ${{ steps.zip.outputs.setup_sha256 }}
           ZIP: ${{ steps.zip.outputs.name }}
-          SHA256: ${{ steps.zip.outputs.sha256 }}
+          ZIP_SHA256: ${{ steps.zip.outputs.zip_sha256 }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
           $notes = @"
+          ## Download
+
+          - **``$env:SETUP``**: installer (recommended). Installs for your user only, no admin rights; adds a Start menu shortcut and an uninstaller.
+          - **``$env:ZIP``**: portable. Unzip anywhere and run ``UnofficialLeaguePhd.exe``; delete the folder to remove it.
+
+          Nothing else is needed: Python and every library are included.
+
+          Not code-signed yet, so SmartScreen may warn on first run ("More info" → "Run anyway"). See the README for what the app does on your computer.
+
+          ## Verify
+
           Built by GitHub Actions from ``$env:COMMIT`` ([run]($env:RUN_URL)).
 
-          **SHA-256** of ``$env:ZIP``: ``$env:SHA256``
+          | File | SHA-256 |
+          |---|---|
+          | ``$env:SETUP`` | ``$env:SETUP_SHA256`` |
+          | ``$env:ZIP`` | ``$env:ZIP_SHA256`` |
 
-          Verify it came from this repository's release workflow:
+          Prove a file came from this repository's release workflow:
           ``````
-          gh attestation verify $env:ZIP --repo $env:REPO
+          gh attestation verify <file> --repo $env:REPO
           ``````
-
-          Not code-signed yet, so SmartScreen may warn on first run. See the README for what the app does on your computer.
 
           Unofficial: not made or endorsed by League PhD or Riot Games.
           "@
-          gh release create $env:TAG "dist/$env:ZIP" "dist/$env:ZIP.sha256" --draft --title $env:TAG --notes $notes
+          gh release create $env:TAG "dist/$env:SETUP" "dist/$env:ZIP" dist/SHA256SUMS.txt --draft --title $env:TAG --notes $notes

@@ -12,10 +12,17 @@ version runs on current Python and Qt and works with the current League client.
 
 ## Download
 
-Get the zip from [Releases](https://github.com/seanaujong/leaguephd-shell/releases),
-unzip it anywhere, and run `UnofficialLeaguePhd.exe`. Keep the folder together;
-the exe needs `_internal\` next to it. There's no installer: to remove it, delete
-the folder.
+From [Releases](https://github.com/seanaujong/unofficial-leaguephd-shell/releases), pick one:
+
+- **Installer (recommended):** `UnofficialLeaguePhd-Setup-v<version>.exe`. Installs
+  for your user only (no admin rights), adds a Start menu shortcut, and can be
+  removed from Windows Settings → Installed apps.
+- **Portable:** `UnofficialLeaguePhd-v<version>-windows-x64.zip`. Unzip anywhere and
+  run `UnofficialLeaguePhd.exe`; keep the folder together (the exe needs
+  `_internal\` next to it). Delete the folder to remove it.
+
+**Nothing else to install.** Python and every library the app needs are included.
+You don't need Python, uv or anything from the "Run from source" section below.
 
 The exe isn't code-signed yet (see [Code signing policy](#code-signing-policy)), so
 Windows SmartScreen may warn on first run ("More info" → "Run anyway").
@@ -28,13 +35,14 @@ has a GitHub build-provenance attestation, which proves the zip came from that
 workflow run on this repository:
 
 ```
-gh attestation verify UnofficialLeaguePhd-<version>-windows-x64.zip --repo seanaujong/leaguephd-shell
+gh attestation verify <downloaded file> --repo seanaujong/unofficial-leaguephd-shell
 ```
 
-Each release also lists the zip's SHA-256. To check it in PowerShell:
+Each release also lists every file's SHA-256 (and attaches `SHA256SUMS.txt`). To
+check a download in PowerShell:
 
 ```
-Get-FileHash .\UnofficialLeaguePhd-<version>-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\<downloaded file> -Algorithm SHA256
 ```
 
 ## What it does on your computer
@@ -87,7 +95,8 @@ checked by CodeQL code scanning, and Dependabot proposes dependency updates.
 
 ## Run from source
 
-Needs [uv](https://docs.astral.sh/uv/) on Windows.
+For developers only; to just use the app, see [Download](#download). Needs
+[uv](https://docs.astral.sh/uv/) on Windows.
 
 ```
 uv run leaguephd-shell              # normal
@@ -105,9 +114,17 @@ uv run pyinstaller packaging/leaguephd.spec --noconfirm
 ```
 
 Output is `dist/UnofficialLeaguePhd/UnofficialLeaguePhd.exe`, with a `licenses/`
-folder holding every bundled component's licence. Zip the whole
-`dist/UnofficialLeaguePhd` folder to share it (~410 MB unzipped, most of it Qt's
+folder holding every bundled component's licence (~410 MB, most of it Qt's
 embedded Chromium).
+
+To build the installer from that folder, with [Inno Setup 6](https://jrsoftware.org/isinfo.php):
+
+```
+ISCC /DAppVersion=<version> packaging\installer.iss
+```
+
+Output is `dist/UnofficialLeaguePhd-Setup-v<version>.exe` (~115 MB). Releases
+do all of this in GitHub Actions; see `.github/workflows/release.yml`.
 
 ## Test with a real draft, instantly
 

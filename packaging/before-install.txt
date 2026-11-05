@@ -1,0 +1,31 @@
+Unofficial League PhD
+=====================
+
+This is an unofficial app. It is not made or endorsed by League PhD (leaguephd.com)
+or by Riot Games.
+
+What it does on your computer
+-----------------------------
+- Finds the running League client and reads its local API password from the
+  client's process (or its lockfile), so it can read your champ select.
+- Reads champ select only, from the client on this computer (127.0.0.1). It never
+  sends commands to the client, never picks or bans for you, and doesn't touch
+  game memory or files.
+- Shows leaguephd.com in a built-in browser. Links to other sites open in your
+  normal browser.
+- Stores nothing: the built-in browser keeps no cookies or cache on disk.
+- No telemetry, no auto-update, no admin rights needed.
+
+What it sends, and to whom
+--------------------------
+- Your draft (side, bans, picks and your team's roles, as champion IDs) is sent to
+  leaguephd.com so it can suggest picks. No summoner names or account IDs are sent.
+- leaguephd.com shows ads and uses analytics (for example from Google), which run
+  in the app's window as they would in your browser, under leaguephd.com's own
+  policies.
+
+To stop all of this, close the app or uninstall it ("Installed apps" in Windows
+Settings). It installs into your user profile only.
+
+Source code, licences and privacy details:
+https://github.com/seanaujong/unofficial-leaguephd-shell

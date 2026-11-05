@@ -25,7 +25,8 @@ def main() -> None:
         "--page-logs", action="store_true",
         help="also show the web page's console output and Chromium's network errors",
     )
-    args = parser.parse_args()
+    # Anything we don't recognise goes to Qt (e.g. -qwindowgeometry WxH+X+Y).
+    args, qt_args = parser.parse_known_args()
 
     if not args.page_logs:
         # Must be set before QtWebEngine starts. Level 3 = fatal only; hides the
@@ -57,7 +58,7 @@ def main() -> None:
         logging.DEBUG if args.page_logs else logging.WARNING
     )
 
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0], *qt_args])
     bridge = LcuBridge(event_log)
     window = MainWindow(bridge)
     window.show()

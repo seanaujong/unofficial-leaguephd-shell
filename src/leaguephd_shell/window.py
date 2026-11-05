@@ -22,7 +22,7 @@ import logging
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -38,6 +38,13 @@ log = logging.getLogger(__name__)
 # leaguephd-app's assets/icon.ico (GPL-3.0). Used to show which site this app is for;
 # the app itself is unofficial.
 ICON_PATH = Path(__file__).with_name("icon.ico")
+# Set on a page we're about to replace, so it can't be mistaken for its replacement.
+STALE_MARKER = "__leaguephdShellStale"
+READY_PROBE = f"""(() => {{
+  if (window.{STALE_MARKER}) return 'stale';
+  if (typeof app_call === 'function') return 'ready';
+  return document.readyState === 'complete' ? 'no-hook' : 'loading';
+}})()"""
 PICK_NOW_URL = QUrl("https://www.leaguephd.com/en/stats/pick-now/")
 SITE_HOST = "leaguephd.com"
 
@@ -113,24 +120,38 @@ class MainWindow(QMainWindow):
 
         self.view = QWebEngineView(self)
         self.view.setPage(SitePage(self.view))
-        self.view.loadFinished.connect(self._on_load_finished)
         self.setCentralWidget(self.view)
 
+        # leaguephd.com can take 10+ seconds to load (it's ad-heavy). Say so,
+        # rather than leave an empty window.
+        self._loading = QLabel()
+        self.statusBar().addPermanentWidget(self._loading)
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
 
         # All draft logic lives in the controller; this window is its PageDriver.
         self.controller = DraftController(page=self, on_phase=self._show_phase)
-        self._load_token = 0
+        self._warned_generation = -1
 
-        self.view.loadStarted.connect(self._on_load_started)
+        self.view.loadStarted.connect(self.controller.page_load_started)
+        self.view.loadProgress.connect(self._on_load_progress)
+        self.view.loadFinished.connect(self._on_load_finished)
         bridge.phase.connect(self.controller.connection_phase)
         bridge.session.connect(self.controller.session_event)
 
-        self.load_pick_now()
+        # Qt doesn't always report loads in start/finish pairs, so instead of
+        # relying on them, keep asking the page whether it's ready until it is.
+        self._poll = QTimer(self)
+        self._poll.setInterval(500)
+        self._poll.timeout.connect(self._check_page_ready)
+        self._poll.start()
+
+        self.view.load(PICK_NOW_URL)
 
     # --- PageDriver (requests from the controller) ---------------------------
 
     def load_pick_now(self) -> None:
+        # Mark the current document so readiness checks can tell it from the new one.
+        self.view.page().runJavaScript(f"window.{STALE_MARKER} = true;")
         self.view.load(PICK_NOW_URL)
 
     def app_call(self, payload: dict) -> None:
@@ -144,24 +165,26 @@ class MainWindow(QMainWindow):
     def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
 
-    def _on_load_started(self) -> None:
-        self._load_token = self.controller.page_load_started()
+    def _on_load_progress(self, percent: int) -> None:
+        self._loading.setText(f"Loading leaguephd.com... {percent}%" if percent < 100 else "")
 
     def _on_load_finished(self, ok: bool) -> None:
         # Don't trust `ok`: the site's ad/tracker scripts often fail and report
-        # ok=False even though the page works. Instead, ask the page whether its
-        # app_call hook exists.
-        token = self._load_token
+        # ok=False even though the page works. Ask the page instead.
+        self._loading.setText("")
         if not ok:
             log.info("loadFinished(ok=False) for %s; checking page anyway", self.view.url().toString())
-        if not self.on_pick_now():
-            self.controller.page_ready(token, False)
-            return
+        self._check_page_ready()
 
-        def on_probe(has_hook) -> None:
-            accepted = self.controller.page_ready(token, bool(has_hook))
-            # A load replaced mid-way also answers "no"; only warn for the current page.
-            if accepted and not has_hook:
+    def _check_page_ready(self) -> None:
+        if self.controller.page_is_ready or not self.on_pick_now():
+            return
+        token = self.controller.probe_token()
+
+        def on_answer(state) -> None:
+            accepted = self.controller.page_ready(token, state == "ready")
+            if accepted and state == "no-hook" and self._warned_generation != token:
+                self._warned_generation = token
                 log.warning("pick-now page has no app_call(); the site may have changed")
 
-        self.view.page().runJavaScript("typeof app_call === 'function'", 0, on_probe)
+        self.view.page().runJavaScript(READY_PROBE, 0, on_answer)

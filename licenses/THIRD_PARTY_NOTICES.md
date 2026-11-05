@@ -32,7 +32,7 @@ below may lag behind them).
 Qt is dynamically linked: the Qt DLLs sit unmodified in `_internal/PySide6/`, and
 you may replace them with your own builds of the same Qt version. The complete
 source of this app, and the build script that produced this package
-(`packaging/leaguephd.spec`), are at https://github.com/seanaujong/leaguephd-shell.
+(`packaging/leaguephd.spec`), are at https://github.com/seanaujong/unofficial-leaguephd-shell.
 
 ## Riot Games
 
