@@ -17,6 +17,7 @@ original's qasync/QThreadExecutor setup.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import threading
@@ -28,7 +29,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QLabel, QMainWindow
 
-from . import APP_NAME, __version__, lcu
+from . import APP_NAME, __version__, lcu, updates
 from .controller import DraftController
 from .phases import Phase
 
@@ -82,6 +83,25 @@ class LcuBridge(QObject):
         self.session.emit(event.event_type, event.data)
 
 
+class UpdateChecker(QObject):
+    """Runs the one-off update check on a daemon thread; emits `found` if there's a newer release."""
+
+    found = Signal(object)  # updates.Update
+
+    def __init__(self, current_version: str):
+        super().__init__()
+        self._current = current_version
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, name="update-check", daemon=True).start()
+
+    def _run(self) -> None:
+        update = updates.check_for_update(self._current)
+        if update:
+            log.info("update available: v%s", update.version)
+            self.found.emit(update)
+
+
 page_log = logging.getLogger("leaguephd_shell.page")
 
 
@@ -126,6 +146,9 @@ class MainWindow(QMainWindow):
         # rather than leave an empty window.
         self._loading = QLabel()
         self.statusBar().addPermanentWidget(self._loading)
+        self._update = QLabel()  # filled by show_update; opens the release page in the browser
+        self._update.setOpenExternalLinks(True)
+        self.statusBar().addPermanentWidget(self._update)
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
 
         # All draft logic lives in the controller; this window is its PageDriver.
@@ -164,6 +187,11 @@ class MainWindow(QMainWindow):
 
     def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
+
+    def show_update(self, update: "updates.Update") -> None:
+        self._update.setText(f'<a href="{html.escape(update.url, quote=True)}">'
+                             f"Update available: v{html.escape(update.version)}</a>")
+        self._update.setToolTip("Opens the release page in your browser")
 
     def _on_load_progress(self, percent: int) -> None:
         self._loading.setText(f"Loading leaguephd.com... {percent}%" if percent < 100 else "")

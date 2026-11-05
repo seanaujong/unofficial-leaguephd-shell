@@ -14,12 +14,16 @@ What it does on your computer
 - Shows leaguephd.com in a built-in browser. Links to other sites open in your
   normal browser.
 - Stores nothing: the built-in browser keeps no cookies or cache on disk.
-- No telemetry, no auto-update, no admin rights needed.
+- Checks once at startup whether a newer version is on GitHub and, if so, shows
+  a link to it. It never downloads or installs anything by itself.
+- No telemetry, no automatic updates, no admin rights needed.
 
 What it sends, and to whom
 --------------------------
 - Your draft (side, bans, picks and your team's roles, as champion IDs) is sent to
   leaguephd.com so it can suggest picks. No summoner names or account IDs are sent.
+- The update check asks github.com for this app's latest release. It carries no
+  personal data (GitHub sees your IP address, as with any web request).
 - leaguephd.com shows ads and uses analytics (for example from Google), which run
   in the app's window as they would in your browser, under leaguephd.com's own
   policies.

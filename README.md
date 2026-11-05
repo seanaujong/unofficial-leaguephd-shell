@@ -60,11 +60,24 @@ So you can judge whether it's safe to run:
 - **Stores nothing.** The embedded browser runs off the record: no cookies or cache
   are saved to disk. The app writes no files, unless you run it from source with
   `--debug`, which records champ select events to `logs/session.jsonl`.
-- **No telemetry, no auto-update, no admin rights**, and no other network
-  connections than the two above.
+- **Checks for updates, once, at startup.** It asks GitHub's API whether this
+  repository has a newer release and, if so, shows "Update available" in the
+  status bar, linking to the release page. It never downloads or installs
+  anything; updating is up to you. The request carries no personal data, only a
+  User-Agent naming the app and version. To turn it off, start the app with
+  `--no-update-check`.
+- **No telemetry, no automatic updates, no admin rights**, and no other network
+  connections than the three above.
 
 The code that does each of these is short: [`lcu.py`](src/leaguephd_shell/lcu.py)
-(the League client) and [`window.py`](src/leaguephd_shell/window.py) (the page).
+(the League client), [`window.py`](src/leaguephd_shell/window.py) (the page) and
+[`updates.py`](src/leaguephd_shell/updates.py) (the update check).
+
+### Updating
+
+Download the new installer from Releases and run it: it replaces the old version
+in place (same folder, shortcut and Installed apps entry) and closes the app first
+if it's running. For the portable zip, replace the folder.
 
 ## Privacy
 
@@ -75,6 +88,9 @@ The code that does each of these is short: [`lcu.py`](src/leaguephd_shell/lcu.py
   Google ad and analytics scripts), which run inside the app's window just as they
   would in your browser. What they collect is covered by leaguephd.com's own
   policies, not this project.
+- The startup update check asks GitHub for this repository's latest release.
+  Like any web request, GitHub sees your IP address; the request itself carries
+  no personal data. Turn it off with `--no-update-check`.
 - This project collects nothing itself.
 
 ## Code signing policy
@@ -123,7 +139,10 @@ To build the installer from that folder, with [Inno Setup 6](https://jrsoftware.
 ISCC /DAppVersion=<version> packaging\installer.iss
 ```
 
-Output is `dist/UnofficialLeaguePhd-Setup-v<version>.exe` (~115 MB). Releases
+Output is `dist/UnofficialLeaguePhd-Setup-v<version>.exe` (~115 MB). When
+testing an installer on a machine that also has the app installed for real, add
+`/DAppIdGuid=00000000-0000-0000-0000-000000000001` so the test install and
+uninstall can't replace or remove the real install's Installed apps entry. Releases
 do all of this in GitHub Actions; see `.github/workflows/release.yml`.
 
 ## Test with a real draft, instantly

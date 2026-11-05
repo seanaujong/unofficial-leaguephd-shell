@@ -25,5 +25,7 @@ League PhD and to Riot Games respectively.
 
 See [What it does on your computer](README.md#what-it-does-on-your-computer).
 In short: it reads the League client's local API password from the client's
-process or lockfile, reads champ select from `127.0.0.1`, and displays
-leaguephd.com. It sends nothing to the League client and stores nothing on disk.
+process or lockfile, reads champ select from `127.0.0.1`, displays
+leaguephd.com, and asks GitHub's API once at startup whether a newer release
+exists (it only shows a link; it never downloads anything). It sends nothing to
+the League client and stores nothing on disk.

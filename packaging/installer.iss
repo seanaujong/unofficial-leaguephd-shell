@@ -10,13 +10,19 @@
   #error Pass the version: ISCC /DAppVersion=X.Y.Z packaging\installer.iss
 #endif
 
+; Test builds MUST pass a different ID, e.g. /DAppIdGuid=00000000-0000-0000-0000-000000000001,
+; so installing/uninstalling them can't touch a real install's Installed apps entry.
+#ifndef AppIdGuid
+  #define AppIdGuid "6E1A6A2B-5D2C-4C47-9E7B-2B8E4C1F7A31"
+#endif
+
 #define AppName "Unofficial League PhD"
 #define ExeName "UnofficialLeaguePhd.exe"
 #define RepoUrl "https://github.com/seanaujong/unofficial-leaguephd-shell"
 
 [Setup]
 ; Never change AppId: Windows uses it to recognise upgrades and the uninstaller.
-AppId={{6E1A6A2B-5D2C-4C47-9E7B-2B8E4C1F7A31}
+AppId={{{#AppIdGuid}}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -47,6 +53,13 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[InstallDelete]
+; On upgrade, remove the previous version's program files first, so files a newer
+; build no longer ships (e.g. trimmed Qt libraries) don't linger. Everything in
+; these folders comes from this installer; the app keeps no user data in them.
+Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\licenses"
 
 [Files]
 Source: "..\dist\UnofficialLeaguePhd\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

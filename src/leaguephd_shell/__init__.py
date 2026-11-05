@@ -25,6 +25,10 @@ def main() -> None:
         "--page-logs", action="store_true",
         help="also show the web page's console output and Chromium's network errors",
     )
+    parser.add_argument(
+        "--no-update-check", action="store_true",
+        help="don't ask GitHub at startup whether a newer release exists",
+    )
     # Anything we don't recognise goes to Qt (e.g. -qwindowgeometry WxH+X+Y).
     args, qt_args = parser.parse_known_args()
 
@@ -41,7 +45,7 @@ def main() -> None:
 
     from PySide6.QtWidgets import QApplication
 
-    from .window import LcuBridge, MainWindow
+    from .window import LcuBridge, MainWindow, UpdateChecker
 
     event_log = None
     if args.debug:
@@ -63,4 +67,8 @@ def main() -> None:
     window = MainWindow(bridge)
     window.show()
     bridge.start()
+    if not args.no_update_check:
+        checker = UpdateChecker(__version__)
+        checker.found.connect(window.show_update)
+        checker.start()
     sys.exit(app.exec())
