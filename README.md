@@ -66,6 +66,8 @@ So you can judge whether it's safe to run:
   anything; updating is up to you. The request carries no personal data, only a
   User-Agent naming the app and version. To turn it off, start the app with
   `--no-update-check`.
+- **Runs one copy at a time.** Starting it while it's already open brings the
+  open window to the front instead (via a local named pipe; nothing leaves your PC).
 - **No telemetry, no automatic updates, no admin rights**, and no other network
   connections than the three above.
 

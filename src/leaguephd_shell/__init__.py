@@ -63,8 +63,18 @@ def main() -> None:
     )
 
     app = QApplication([sys.argv[0], *qt_args])
+
+    from .single_instance import InstanceServer, ask_running_copy_to_show
+
+    if ask_running_copy_to_show():
+        logging.getLogger(__name__).info("already running; showed the existing window")
+        sys.exit(0)
+    instance = InstanceServer()
+    instance.listen()
+
     bridge = LcuBridge(event_log)
     window = MainWindow(bridge)
+    instance.show_requested.connect(window.bring_to_front)
     window.show()
     bridge.start()
     if not args.no_update_check:

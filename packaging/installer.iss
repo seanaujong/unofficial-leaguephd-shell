@@ -49,7 +49,13 @@ OutputBaseFilename=UnofficialLeaguePhd-Setup-v{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; Close a running copy so its files can be replaced. "force" because its
+; Chromium helper processes (QtWebEngineProcess.exe) have no windows and can't
+; be asked to close; the app keeps no unsaved data, so this is safe. Don't
+; restart it afterwards: the "Launch" checkbox on the last page already does,
+; and doing both opened two windows.
+CloseApplications=force
+RestartApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

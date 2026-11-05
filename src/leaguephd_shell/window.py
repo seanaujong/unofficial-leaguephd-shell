@@ -206,6 +206,14 @@ class MainWindow(QMainWindow):
     def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
 
+    def bring_to_front(self) -> None:
+        """Another copy was started: show this window instead."""
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     def _show_unknown(self, champion_ids: set[int]) -> None:
         n = len(champion_ids)
         self._unknown.setText(
