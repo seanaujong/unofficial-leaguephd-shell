@@ -21,6 +21,7 @@ import html
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
@@ -39,6 +40,11 @@ log = logging.getLogger(__name__)
 # leaguephd-app's assets/icon.ico (GPL-3.0). Used to show which site this app is for;
 # the app itself is unofficial.
 ICON_PATH = Path(__file__).with_name("icon.ico")
+# If the page's renderer dies more than this many times in this many seconds,
+# stop reloading it automatically.
+MAX_CRASHES = 3
+CRASH_WINDOW_S = 120
+
 # Set on a page we're about to replace, so it can't be mistaken for its replacement.
 STALE_MARKER = "__leaguephdShellStale"
 # Returns JSON: {state: stale|ready|no-hook|loading, known: [champion ids] | null}.
@@ -156,6 +162,9 @@ class MainWindow(QMainWindow):
         # rather than leave an empty window.
         self._loading = QLabel()
         self.statusBar().addPermanentWidget(self._loading)
+        self._page_status = QLabel()  # set if the page's renderer process dies
+        self.statusBar().addPermanentWidget(self._page_status)
+        self._crash_times: list[float] = []
         self._unknown = QLabel()  # newer champions the site doesn't have yet
         self.statusBar().addPermanentWidget(self._unknown)
         self._update = QLabel()  # filled by show_update; opens the release page in the browser
@@ -169,6 +178,7 @@ class MainWindow(QMainWindow):
         )
         self._warned_generation = -1
 
+        self.view.page().renderProcessTerminated.connect(self._on_renderer_died)
         self.view.loadStarted.connect(self.controller.page_load_started)
         self.view.loadProgress.connect(self._on_load_progress)
         self.view.loadFinished.connect(self._on_load_finished)
@@ -205,6 +215,23 @@ class MainWindow(QMainWindow):
 
     def _show_phase(self, phase: Phase) -> None:
         self.statusBar().showMessage(phase.label)
+
+    def _on_renderer_died(self, status, exit_code: int) -> None:
+        """Chromium's page process ended unexpectedly; the view is now blank.
+
+        Reload and rebuild the draft, but give up after MAX_CRASHES in
+        CRASH_WINDOW_S so a page that always crashes doesn't loop forever.
+        """
+        reason = getattr(status, "name", str(status)).replace("TerminationStatus", "")
+        log.warning("page renderer ended: %s, exit code %s", reason, exit_code)
+        now = time.monotonic()
+        self._crash_times = [t for t in self._crash_times if now - t < CRASH_WINDOW_S] + [now]
+        stamp = time.strftime("%H:%M")
+        if len(self._crash_times) > MAX_CRASHES:
+            self._page_status.setText(f"Page keeps crashing ({reason}, code {exit_code}); restart the app")
+            return
+        self._page_status.setText(f"Page crashed at {stamp} ({reason}, code {exit_code}); reloaded")
+        QTimer.singleShot(1000, self.controller.page_crashed)
 
     def bring_to_front(self) -> None:
         """Another copy was started: show this window instead."""

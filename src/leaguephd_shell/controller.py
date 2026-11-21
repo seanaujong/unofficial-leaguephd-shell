@@ -60,6 +60,7 @@ class DraftController:
         # doesn't know, so updates are adapted to this set before delivery.
         self.known_champions: frozenset[int] | None = None
         self.unknown_champions: set[int] = set()  # left out this draft
+        self.last_snapshot: dict | None = None  # latest champ select session, if in one
         self.phase: Phase | None = None
         self.tracker = ChampSelect()
         self.pending: list[dict] = []  # payloads waiting for the page to be ready
@@ -97,8 +98,12 @@ class DraftController:
         if event_type == "Delete" or data is None:
             # Champ select closed: the game loaded, or someone dodged.
             self.needs_fresh_draft = True
+            self.last_snapshot = None
             self._set_phase(Phase.IDLE)
             return
+        # The client only sends changes, so keep the latest full snapshot to
+        # rebuild the draft onto a replacement page (see page_crashed).
+        self.last_snapshot = data
         if event_type == "Create":
             self.needs_fresh_draft = True
 
@@ -126,6 +131,20 @@ class DraftController:
             self._reload_page()
         # Otherwise the current page (perhaps still loading) is unused: keep it.
         # Reloading it would only restart a slow load.
+
+    def page_crashed(self) -> None:
+        """The page's renderer process died: load a new page and rebuild the draft.
+
+        Without this the window stays blank, because the client only sends
+        changes and a draft can sit unchanged for a while.
+        """
+        self.tracker.reset()
+        self.pending.clear()
+        self._reload_page()
+        if self.last_snapshot is not None and self.phase and self.phase.in_champ_select:
+            changed, delta = self.tracker.update(self.last_snapshot)
+            if changed:
+                self._send(self.tracker.payload(delta))
 
     def _reload_page(self) -> None:
         self._generation += 1  # answers about the old page are now stale

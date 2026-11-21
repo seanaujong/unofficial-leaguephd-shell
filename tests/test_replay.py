@@ -310,6 +310,38 @@ def test_without_site_data_updates_pass_through_unchanged():
     assert YUNARA in page.delivered[-1]["bans"]
 
 
+def test_page_crash_mid_draft_rebuilds_draft_on_new_page():
+    """The reported blank window: the renderer died mid-draft and nothing came back."""
+    events = load_events()
+    ctrl, page, _ = make()
+    play(ctrl, page, events[:45])  # bans done, 3 picks in
+    before = page.delivered[-1]
+    old_doc = page.doc
+    ctrl.page_crashed()  # no new client event follows: the draft is unchanged
+    assert page.doc is not old_doc and ctrl.loads_requested == 1
+    page.finish_load()
+    assert len(page.delivered) == 1, "one update rebuilds the whole draft"
+    rebuilt = page.delivered[0]
+    assert rebuilt["my_side"] == before["my_side"]
+    assert rebuilt["bans"] == before["bans"]
+    assert rebuilt["updated"]["to_pick_phase"]
+    assert {(i["side"], i["slot"], i["champion_id"]) for i in rebuilt["updated"]["insert_list"]} == {
+        (s, n, c["champion_id"]) for s, team in enumerate(before["picks"])
+        for n, c in enumerate(team) if c["champion_id"]
+    }
+    play(ctrl, page, events[45:])  # and the draft carries on normally
+    assert ctrl.tracker.num_picked == 10
+
+
+def test_page_crash_outside_champ_select_just_reloads():
+    events = load_events()
+    ctrl, page, _ = make()
+    play(ctrl, page, events)  # ends with Delete: the game started
+    ctrl.page_crashed()
+    page.finish_load()
+    assert page.delivered == [] and ctrl.loads_requested == 1
+
+
 def test_reconnect_idle_does_not_hide_champ_select_phase():
     ctrl, page, _ = make()
     ctrl.session_event("Update", load_events()[30]["data"])
