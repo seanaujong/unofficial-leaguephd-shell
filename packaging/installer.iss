@@ -49,6 +49,10 @@ OutputBaseFilename=UnofficialLeaguePhd-Setup-v{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; Only one setup at a time. Without this, a second click while Windows is still
+; scanning this large installer (several seconds before any window appears)
+; started a second setup, and the two raced on the same files and registration.
+SetupMutex=UnofficialLeaguePhdSetup-{#AppIdGuid}
 ; Close a running copy so its files can be replaced. "force" because its
 ; Chromium helper processes (QtWebEngineProcess.exe) have no windows and can't
 ; be asked to close; the app keeps no unsaved data, so this is safe. Don't
